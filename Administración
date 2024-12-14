@@ -1,0 +1,182 @@
+import sqlite3
+from datetime import datetime
+import csv
+
+class LibroDiarioContabilidad:
+    def __init__(self, nombre_bd='libro_diario.db'):
+        """
+        Inicializa la base de datos y crea la tabla de asientos contables
+        """
+        self.conexion = sqlite3.connect(nombre_bd)
+        self.cursor = self.conexion.cursor()
+        
+        # Crear tabla de asientos contables
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS asientos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha TEXT NOT NULL,
+                descripcion TEXT NOT NULL,
+                debe REAL NOT NULL,
+                haber REAL NOT NULL,
+                cuenta_debe TEXT NOT NULL,
+                cuenta_haber TEXT NOT NULL
+            )
+        ''')
+        self.conexion.commit()
+
+    def registrar_asiento(self, fecha, descripcion, debe, haber, cuenta_debe, cuenta_haber):
+        """
+        Registra un nuevo asiento contable
+        """
+        try:
+            # Validar que los montos sean positivos
+            if debe < 0 or haber < 0:
+                raise ValueError("Los montos no pueden ser negativos")
+
+            # Registrar el asiento
+            self.cursor.execute('''
+                INSERT INTO asientos 
+                (fecha, descripcion, debe, haber, cuenta_debe, cuenta_haber) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (fecha, descripcion, debe, haber, cuenta_debe, cuenta_haber))
+            
+            self.conexion.commit()
+            return True
+        except Exception as e:
+            print(f"Error al registrar asiento: {e}")
+            return False
+
+    def consultar_asientos(self, fecha_inicio=None, fecha_fin=None):
+        """
+        Consulta asientos contables por rango de fechas
+        """
+        try:
+            if fecha_inicio and fecha_fin:
+                self.cursor.execute('''
+                    SELECT * FROM asientos 
+                    WHERE fecha BETWEEN ? AND ?
+                    ORDER BY fecha
+                ''', (fecha_inicio, fecha_fin))
+            else:
+                self.cursor.execute('SELECT * FROM asientos ORDER BY fecha')
+            
+            return self.cursor.fetchall()
+        except Exception as e:
+            print(f"Error al consultar asientos: {e}")
+            return []
+
+    def generar_balance(self):
+        """
+        Genera un balance de sumas y saldos
+        """
+        try:
+            # Calcular totales por cuenta
+            self.cursor.execute('''
+                SELECT 
+                    cuenta_debe AS cuenta, 
+                    SUM(debe) AS total_debe, 
+                    0 AS total_haber 
+                FROM asientos 
+                GROUP BY cuenta_debe
+
+                UNION
+
+                SELECT 
+                    cuenta_haber AS cuenta, 
+                    0 AS total_debe, 
+                    SUM(haber) AS total_haber 
+                FROM asientos 
+                GROUP BY cuenta_haber
+            ''')
+            
+            return self.cursor.fetchall()
+        except Exception as e:
+            print(f"Error al generar balance: {e}")
+            return []
+
+    def exportar_a_csv(self, nombre_archivo='libro_diario.csv'):
+        """
+        Exporta todos los asientos a un archivo CSV
+        """
+        try:
+            asientos = self.consultar_asientos()
+            
+            with open(nombre_archivo, 'w', newline='', encoding='utf-8') as archivo_csv:
+                escritor = csv.writer(archivo_csv)
+                escritor.writerow([
+                    'ID', 'Fecha', 'Descripción', 
+                    'Debe', 'Haber', 'Cuenta Debe', 'Cuenta Haber'
+                ])
+                
+                for asiento in asientos:
+                    escritor.writerow(asiento)
+            
+            print(f"Archivo {nombre_archivo} exportado correctamente")
+            return True
+        except Exception as e:
+            print(f"Error al exportar a CSV: {e}")
+            return False
+
+    def __del__(self):
+        """
+        Cerrar la conexión de la base de datos al destruir el objeto
+        """
+        self.conexion.close()
+
+def menu_principal():
+    """
+    Menú interactivo para interactuar con el libro diario
+    """
+    libro_diario = LibroDiarioContabilidad()
+
+    while True:
+        print("\n--- LIBRO DIARIO DE CONTABILIDAD ---")
+        print("1. Registrar Asiento")
+        print("2. Consultar Asientos")
+        print("3. Generar Balance")
+        print("4. Exportar a CSV")
+        print("5. Salir")
+
+        opcion = input("Seleccione una opción: ")
+
+        if opcion == '1':
+            fecha = input("Fecha (YYYY-MM-DD): ")
+            descripcion = input("Descripción: ")
+            cuenta_debe = input("Cuenta Debe: ")
+            cuenta_haber = input("Cuenta Haber: ")
+            
+            try:
+                debe = float(input("Monto Debe: "))
+                haber = float(input("Monto Haber: "))
+                
+                libro_diario.registrar_asiento(fecha, descripcion, debe, haber, cuenta_debe, cuenta_haber)
+                print("Asiento registrado exitosamente")
+            except ValueError:
+                print("Error: Ingrese montos válidos")
+
+        elif opcion == '2':
+            fecha_inicio = input("Fecha Inicio (YYYY-MM-DD, Enter para todos): ") or None
+            fecha_fin = input("Fecha Fin (YYYY-MM-DD, Enter para todos): ") or None
+            
+            asientos = libro_diario.consultar_asientos(fecha_inicio, fecha_fin)
+            for asiento in asientos:
+                print(asiento)
+
+        elif opcion == '3':
+            balance = libro_diario.generar_balance()
+            for cuenta in balance:
+                print(f"Cuenta: {cuenta[0]}, Debe: {cuenta[1]}, Haber: {cuenta[2]}")
+
+        elif opcion == '4':
+            nombre_archivo = input("Nombre del archivo CSV (Enter para 'libro_diario.csv'): ") or 'libro_diario.csv'
+            libro_diario.exportar_a_csv(nombre_archivo)
+
+        elif opcion == '5':
+            print("Gracias por usar el Libro Diario de Contabilidad")
+            break
+
+        else:
+            print("Opción no válida. Intente nuevamente.")
+
+if __name__ == "__main__":
+    menu_principal()
